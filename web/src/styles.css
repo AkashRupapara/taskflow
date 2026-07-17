@@ -1,0 +1,251 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #1a1a1a;
+  background: #f5f6f8;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 220px;
+  background: #1f2430;
+  color: #e6e6e6;
+  padding: 16px;
+  overflow-y: auto;
+}
+.sidebar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sidebar-head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.sidebar-head button {
+  background: #3a4252;
+  color: #fff;
+  border: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+}
+.project {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: #cfd3dc;
+  padding: 9px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 6px;
+  font-size: 14px;
+}
+.project:hover {
+  background: #2a3140;
+}
+.project.active {
+  background: #3457d5;
+  color: #fff;
+}
+
+/* Main */
+.main {
+  flex: 1;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.board-head h1 {
+  font-size: 20px;
+  margin: 0;
+}
+.conn {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.conn.on {
+  color: #16794b;
+  background: #d7f5e6;
+}
+.conn.off {
+  color: #8a8a8a;
+  background: #eee;
+}
+.error {
+  background: #fde2e2;
+  color: #a12020;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.empty {
+  color: #888;
+}
+
+/* Board columns */
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 18px;
+}
+.column {
+  background: #eceef1;
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 200px;
+}
+.column h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #5a6270;
+  margin: 4px 4px 12px;
+}
+.count {
+  color: #99a;
+}
+
+/* Cards */
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+.card-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+.prio,
+.tag {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef;
+  color: #445;
+}
+.prio.high {
+  background: #ffe0e0;
+  color: #b03030;
+}
+.prio.low {
+  background: #e6f0ff;
+  color: #3060a0;
+}
+.card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.card-actions select {
+  flex: 1;
+  font-size: 12px;
+  padding: 3px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+.del {
+  border: 0;
+  background: #f2f2f2;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #999;
+}
+.del:hover {
+  background: #fde2e2;
+  color: #a12020;
+}
+
+/* Add-task / comment input */
+.add {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.add input {
+  flex: 1;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 13px;
+}
+.add button {
+  background: #3457d5;
+  color: #fff;
+  border: 0;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Task detail drawer */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: flex-end;
+}
+.drawer {
+  width: 380px;
+  max-width: 90vw;
+  background: #fff;
+  height: 100%;
+  padding: 22px;
+  overflow-y: auto;
+  position: relative;
+}
+.drawer h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+.close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border: 0;
+  background: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: #999;
+}
+.muted {
+  color: #999;
+  font-size: 13px;
+}
+.comments {
+  margin: 8px 0;
+}
+.comment {
+  font-size: 13px;
+  padding: 7px 0;
+  border-bottom: 1px solid #eee;
+}
