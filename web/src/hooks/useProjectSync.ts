@@ -3,8 +3,9 @@
 // optimistic: apply locally now, reconcile on the server's echoed event, roll
 // back if the request fails.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, wsURL } from "./api";
-import type { Comment, Event, Project, Status, Task } from "./types";
+import { api } from "../api/client";
+import { wsURL } from "../api/ws";
+import type { Comment, Event, Project, Status, Task } from "../types";
 
 type TaskMap = Record<string, Task>;
 

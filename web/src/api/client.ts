@@ -1,6 +1,6 @@
-// Thin REST client. All calls go through the Vite proxy to the Go API, so paths
-// are relative (/api/...). Mutations return the updated entity.
-import type { Comment, Project, Task, TaskConfiguration } from "./types";
+// REST client. All calls go through the Vite proxy to the Go API, so paths are
+// relative (/api/...). Mutations return the updated entity.
+import type { Comment, Project, Task, TaskConfiguration } from "../types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -52,9 +52,3 @@ export const api = {
       body: JSON.stringify({ content, author }),
     }),
 };
-
-// WebSocket URL for a project's realtime stream, resuming after version `since`.
-export function wsURL(projectId: string, since: number): string {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/ws?projectId=${projectId}&since=${since}`;
-}
