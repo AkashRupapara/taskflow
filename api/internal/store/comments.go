@@ -33,6 +33,7 @@ func (s *Store) ListComments(ctx context.Context, taskID string) ([]domain.Comme
 // project (looked up from the task) so subscribers see the new comment.
 func (s *Store) AddComment(ctx context.Context, taskID, content, author string) (domain.Comment, error) {
 	var c domain.Comment
+	var ev domain.Event
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var projectID string
 		err := tx.QueryRow(ctx, `SELECT project_id FROM tasks WHERE id = $1`, taskID).Scan(&projectID)
@@ -50,8 +51,12 @@ func (s *Store) AddComment(ctx context.Context, taskID, content, author string) 
 		if err := row.Scan(&c.ID, &c.TaskID, &c.Content, &c.Author, &c.CreatedAt); err != nil {
 			return err
 		}
-		_, err = appendEvent(ctx, tx, projectID, domain.EventCommentAdded, c, author)
+		ev, err = appendEvent(ctx, tx, projectID, domain.EventCommentAdded, c, author)
 		return err
 	})
-	return c, err
+	if err != nil {
+		return c, err
+	}
+	s.publish(ev)
+	return c, nil
 }

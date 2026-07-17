@@ -64,6 +64,7 @@ func (s *Store) UpdateProject(ctx context.Context, id string, in ProjectInput) (
 		in.Metadata = json.RawMessage(`{}`)
 	}
 	var p domain.Project
+	var ev domain.Event
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx,
 			`UPDATE projects SET name = $2, description = $3, metadata = $4 WHERE id = $1
@@ -76,10 +77,14 @@ func (s *Store) UpdateProject(ctx context.Context, id string, in ProjectInput) (
 			}
 			return err
 		}
-		_, err = appendEvent(ctx, tx, id, domain.EventProjectUpdated, p, "")
+		ev, err = appendEvent(ctx, tx, id, domain.EventProjectUpdated, p, "")
 		return err
 	})
-	return p, err
+	if err != nil {
+		return p, err
+	}
+	s.publish(ev)
+	return p, nil
 }
 
 func (s *Store) DeleteProject(ctx context.Context, id string) error {

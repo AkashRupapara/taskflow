@@ -15,6 +15,7 @@ import (
 	"taskflow/internal/db"
 	"taskflow/internal/server"
 	"taskflow/internal/store"
+	"taskflow/internal/ws"
 )
 
 func main() {
@@ -35,8 +36,16 @@ func main() {
 	}
 	log.Println("migrations applied")
 
-	// REST routes live in the server package; health stays here.
-	mux := server.New(store.New(pool)).Routes()
+	st := store.New(pool)
+
+	// The hub broadcasts committed events; wiring it as the store's publisher is
+	// what turns every REST mutation into a realtime update for subscribers.
+	hub := ws.NewHub(st, log.Printf)
+	st.SetPublisher(hub)
+
+	// REST routes live in the server package; health + ws stay here.
+	mux := server.New(st).Routes()
+	mux.HandleFunc("GET /ws", hub.ServeHTTP)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		status := "ok"
 		if err := pool.Ping(r.Context()); err != nil {

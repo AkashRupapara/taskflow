@@ -101,6 +101,7 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, in TaskInput) 
 	in.Dependencies = orEmpty(in.Dependencies)
 
 	var t domain.Task
+	var ev domain.Event
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		if err := checkDependencies(ctx, tx, in.Status, in.Dependencies); err != nil {
 			return err
@@ -115,16 +116,21 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, in TaskInput) 
 		if t, err = scanTask(row); err != nil {
 			return err
 		}
-		_, err = appendEvent(ctx, tx, projectID, domain.EventTaskCreated, t, "")
+		ev, err = appendEvent(ctx, tx, projectID, domain.EventTaskCreated, t, "")
 		return err
 	})
-	return t, err
+	if err != nil {
+		return t, err
+	}
+	s.publish(ev)
+	return t, nil
 }
 
 // UpdateTask applies a partial patch, validating status + dependencies, and
 // records a task.updated event carrying the new task state (the delta).
 func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (domain.Task, error) {
 	var t domain.Task
+	var ev domain.Event
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// Load current state (locked) so we can merge the patch onto it.
 		row := tx.QueryRow(ctx,
@@ -169,14 +175,19 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 		if t, err = scanTask(row); err != nil {
 			return err
 		}
-		_, err = appendEvent(ctx, tx, t.ProjectID, domain.EventTaskUpdated, t, "")
+		ev, err = appendEvent(ctx, tx, t.ProjectID, domain.EventTaskUpdated, t, "")
 		return err
 	})
-	return t, err
+	if err != nil {
+		return t, err
+	}
+	s.publish(ev)
+	return t, nil
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
-	return s.tx(ctx, func(tx pgx.Tx) error {
+	var ev domain.Event
+	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var projectID string
 		err := tx.QueryRow(ctx, `DELETE FROM tasks WHERE id = $1 RETURNING project_id`, id).Scan(&projectID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -185,9 +196,14 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
-		_, err = appendEvent(ctx, tx, projectID, domain.EventTaskDeleted, map[string]string{"id": id}, "")
+		ev, err = appendEvent(ctx, tx, projectID, domain.EventTaskDeleted, map[string]string{"id": id}, "")
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	s.publish(ev)
+	return nil
 }
 
 // checkDependencies enforces that a task entering in_progress/done has all of

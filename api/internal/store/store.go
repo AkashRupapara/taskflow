@@ -22,11 +22,31 @@ var (
 	ErrDependencyNotMet = errors.New("dependencies not done")
 )
 
+// Publisher receives events after their transaction commits, so subscribers
+// never see a change that was rolled back. The WebSocket hub implements it.
+type Publisher interface {
+	Publish(domain.Event)
+}
+
 type Store struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	publisher Publisher
 }
 
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+
+// SetPublisher wires an event sink (the hub). Optional; nil means no broadcast.
+func (s *Store) SetPublisher(p Publisher) { s.publisher = p }
+
+// publish forwards a committed event to the publisher if one is set.
+func (s *Store) publish(events ...domain.Event) {
+	if s.publisher == nil {
+		return
+	}
+	for _, e := range events {
+		s.publisher.Publish(e)
+	}
+}
 
 // tx runs fn inside a transaction, committing on success and rolling back on error.
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
