@@ -22,7 +22,7 @@ CREATE TABLE tasks (
     assigned_to   TEXT[] NOT NULL DEFAULT '{}',
     -- {priority, description, tags[], customFields} kept as JSONB for flexibility.
     configuration JSONB NOT NULL DEFAULT '{}',
-    dependencies  UUID[] NOT NULL DEFAULT '{}',
+    dependencies  TEXT[] NOT NULL DEFAULT '{}', -- task ids this task depends on
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

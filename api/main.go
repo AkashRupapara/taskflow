@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"taskflow/internal/db"
+	"taskflow/internal/server"
+	"taskflow/internal/store"
 )
 
 func main() {
@@ -33,7 +35,8 @@ func main() {
 	}
 	log.Println("migrations applied")
 
-	mux := http.NewServeMux()
+	// REST routes live in the server package; health stays here.
+	mux := server.New(store.New(pool)).Routes()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		status := "ok"
 		if err := pool.Ping(r.Context()); err != nil {
