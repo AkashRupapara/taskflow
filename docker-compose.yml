@@ -1,0 +1,42 @@
+# Full local stack: Postgres (pulled automatically), Go API, React web.
+# `docker compose up` boots everything. For day-to-day dev, run just the DB
+# with `docker compose up postgres` and run the API + web natively for hot reload.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: taskflow
+      POSTGRES_PASSWORD: taskflow
+      POSTGRES_DB: taskflow
+    ports:
+      - "5432:5432" # exposed so host tools (psql, etc.) can connect too
+    volumes:
+      - pgdata:/var/lib/postgresql/data # data survives container restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./api
+    depends_on:
+      postgres:
+        condition: service_healthy # wait until DB accepts connections
+    environment:
+      DATABASE_URL: postgres://taskflow:taskflow@postgres:5432/taskflow?sslmode=disable
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+
+  web:
+    build: ./web
+    depends_on:
+      - api
+    environment:
+      API_PROXY_TARGET: http://api:8080 # reach the API over the compose network
+    ports:
+      - "5173:5173"
+
+volumes:
+  pgdata:

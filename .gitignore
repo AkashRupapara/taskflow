@@ -1,0 +1,11 @@
+# Go
+/api/bin/
+/api/taskflow-api
+
+# Node / web
+node_modules/
+/web/dist/
+
+# Env / editor
+.env
+.DS_Store
