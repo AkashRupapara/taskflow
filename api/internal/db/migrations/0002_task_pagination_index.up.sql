@@ -1,3 +1,7 @@
+-- SUPERSEDED: 0005 replaced creation-order with manual ordering, so the list is
+-- now keyed on (position, id) and this index is dropped in 0006. Kept here so
+-- the migration history stays truthful about what was built when.
+--
 -- Supports the keyset-paginated board query:
 --   WHERE project_id = $1 ORDER BY created_at, id
 -- With this composite index the planner does an index range scan and avoids a

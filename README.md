@@ -100,7 +100,17 @@ flowchart LR
 ```
 
 Only **deltas** cross the wire - the single changed task or comment, never the
-whole project. That is what keeps large (2MB+) projects cheap to keep in sync.
+whole project. Measured on a **2.56 MB** project (3,000 tasks with realistic
+descriptions and tags):
+
+| | Size |
+| --- | --- |
+| Full project snapshot (initial load, 15 paginated requests) | 2.56 MB |
+| **One task change, broadcast over the WebSocket** | **1.0 KB** - 0.04% of the project |
+| Reconnect catch-up after that change (`?since=N`) | 1.0 KB |
+
+The cost of a change is a function of *what changed*, not how big the project is.
+The project is transferred once, in bounded pages, and never re-sent after that.
 
 ## How sync works
 
@@ -148,9 +158,11 @@ erDiagram
     uuid id PK
     text name
     text key "task-id prefix, e.g. WR"
+    text description
     jsonb metadata
     bigint version "last applied event"
     bigint task_seq "per-project task counter"
+    timestamptz created_at
   }
   TASKS {
     uuid id PK
@@ -158,16 +170,19 @@ erDiagram
     bigint number "display id = key-number"
     text title
     text status "todo | in_progress | done"
+    text_array assigned_to
     jsonb configuration "priority, description, tags, customFields"
     text_array dependencies "tasks that block this one"
     int rev "optimistic-concurrency revision"
     double position "fractional rank for manual ordering"
+    timestamptz created_at
   }
   COMMENTS {
     uuid id PK
     uuid task_id FK
     text content
     text author
+    timestamptz created_at
   }
   EVENTS {
     bigserial id PK
@@ -176,14 +191,22 @@ erDiagram
     text type "task.created, task.updated, ..."
     jsonb payload "the delta"
     text actor
+    timestamptz created_at "drives the activity log + time-travel"
   }
 ```
+
+This is the brief's data model (`assignedTo[]`, `configuration{priority,
+description, tags, customFields}`, `dependencies[]`) plus the columns the
+real-time layer needs: `version` for ordering, `rev` for conflict detection,
+`position` for manual ranking, and `number`/`key` for readable task ids.
 
 - `UNIQUE (project_id, version)` on `events` guarantees a total order per project.
 - Foreign keys cascade, so deleting a project cleans up everything it owns.
 - Indexes: `(project_id, position, id)` for ordered keyset pagination,
   `(project_id, status)` for the board, `(project_id, version)` for catch-up,
-  `(task_id)` for comment threads.
+  `(task_id)` for comment threads. An earlier index on `(project_id, created_at,
+  id)` was dropped in `0006` once manual ordering replaced creation order - it had
+  become redundant write overhead.
 
 ## Scaling
 
