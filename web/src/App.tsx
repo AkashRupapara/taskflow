@@ -3,10 +3,11 @@ import { api } from "./api/client";
 import { useProjectSync } from "./hooks/useProjectSync";
 import { Sidebar } from "./components/Sidebar";
 import { Board } from "./components/Board";
+import { Backlog } from "./components/Backlog";
 import { TaskModal } from "./components/TaskModal";
 import { ProjectModal } from "./components/ProjectModal";
 import { TaskDetail } from "./components/TaskDetail";
-import { Timeline } from "./components/Timeline";
+import { History } from "./components/History";
 import type { Project } from "./types";
 import "./styles.css";
 
@@ -20,6 +21,7 @@ export function App() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [openTask, setOpenTask] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [view, setView] = useState<"board" | "backlog">("board");
   const sync = useProjectSync(selected);
 
   const refreshProjects = () =>
@@ -73,6 +75,20 @@ export function App() {
               <span className={"conn " + (sync.connected ? "on" : "off")}>
                 {sync.connected ? "● live" : "○ offline"}
               </span>
+              <div className="view-switch" role="tablist" aria-label="View">
+                <button
+                  className={"tab" + (view === "board" ? " active" : "")}
+                  onClick={() => setView("board")}
+                >
+                  Board
+                </button>
+                <button
+                  className={"tab" + (view === "backlog" ? " active" : "")}
+                  onClick={() => setView("backlog")}
+                >
+                  Backlog
+                </button>
+              </div>
               <div className="head-actions">
                 <button
                   className="ghost-btn small"
@@ -112,9 +128,11 @@ export function App() {
             />
             {sync.error && <div className="error">{sync.error}</div>}
             {historyOpen ? (
-              <Timeline project={sync.project} onClose={() => setHistoryOpen(false)} />
-            ) : (
+              <History project={sync.project} onClose={() => setHistoryOpen(false)} />
+            ) : view === "board" ? (
               <Board sync={sync} onOpen={setOpenTask} />
+            ) : (
+              <Backlog sync={sync} onOpen={setOpenTask} />
             )}
             {creatingTask && <TaskModal sync={sync} onClose={() => setCreatingTask(false)} />}
           </>

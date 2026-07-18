@@ -540,3 +540,208 @@ select.field-input {
 .history-board .card {
   cursor: default;
 }
+
+/* History tabs */
+.history-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  border-bottom: 1px solid #e2e4e8;
+  padding-bottom: 8px;
+}
+.tab {
+  background: none;
+  border: 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13.5px;
+  color: #5a6270;
+}
+.tab:hover {
+  background: #eceef1;
+}
+.tab.active {
+  background: #e2e8f6;
+  color: #2340a8;
+  font-weight: 500;
+}
+.history-exit {
+  margin-left: auto;
+}
+
+/* Activity feed */
+.activity {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.activity-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid #eceef1;
+  font-size: 13.5px;
+}
+.activity-ref {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #5a6270;
+  background: #eef0f4;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.activity-task {
+  color: #444;
+}
+.activity-change {
+  color: #1a1a1a;
+}
+.activity-when {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* Sidebar identity */
+.sidebar-user {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #2a3140;
+}
+.sidebar-user-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #8a90a0;
+  margin-bottom: 5px;
+}
+.sidebar-user-input {
+  width: 100%;
+  background: #2a3140;
+  border: 1px solid #3a4252;
+  color: #e6e6e6;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.sidebar-user-input:focus {
+  outline: none;
+  border-color: #6f8bff;
+}
+
+/* Board | Backlog switcher */
+.view-switch {
+  display: flex;
+  gap: 4px;
+  background: #eceef1;
+  padding: 3px;
+  border-radius: 8px;
+  margin-left: 8px;
+}
+.view-switch .tab {
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.view-switch .tab.active {
+  background: #fff;
+  color: #2340a8;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Backlog (ranked list of every task) */
+.backlog {
+  margin: 18px 0 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid #e6e8ec;
+  border-radius: 10px;
+  height: calc(100vh - 210px); /* bounded so the virtualized list can scroll */
+  overflow-y: auto;
+}
+.backlog-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #f0f1f4;
+  font-size: 14px;
+}
+.backlog-open {
+  cursor: pointer;
+}
+.backlog-row {
+  height: 100%;
+}
+.backlog-row:hover {
+  background: #f7f8fa;
+}
+.backlog-rank {
+  width: 24px;
+  color: #b0b4bd;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.backlog-grip {
+  color: #c2c6cf;
+  cursor: grab;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 2px;
+  touch-action: none; /* let dnd-kit own the gesture */
+  user-select: none;
+}
+.backlog-grip:active {
+  cursor: grabbing;
+}
+.backlog-row:hover .backlog-grip {
+  color: #8a90a0;
+}
+.backlog-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.backlog-row.ghost {
+  opacity: 0.4;
+}
+.backlog-row.over {
+  background: #e2e8f6;
+  box-shadow: inset 0 2px 0 #3457d5;
+}
+.backlog-row.dragging {
+  background: #fff;
+  border: 1px solid #dfe2e8;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  width: 420px;
+}
+.backlog-id {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #8a90a0;
+  min-width: 52px;
+}
+.backlog-title {
+  flex: 1;
+}
+.backlog-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef0f4;
+  color: #5a6270;
+}
+.backlog-status.in_progress {
+  background: #e6f0ff;
+  color: #3060a0;
+}
+.backlog-status.done {
+  background: #d7f5e6;
+  color: #16794b;
+}

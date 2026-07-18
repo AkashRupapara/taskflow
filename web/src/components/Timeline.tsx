@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api/client";
 import { STATUS_LABEL } from "../constants";
 import { eventAt, reconstructTasks } from "../lib/history";
 import { STATUSES, type Event, type Project } from "../types";
@@ -31,27 +30,24 @@ function fmt(iso: string): string {
 }
 
 // Time-travel view: replays the project's event log so you can scrub the board
-// back to any past version. Read-only - editing resumes on "Back to live".
-export function Timeline({ project, onClose }: { project: Project; onClose: () => void }) {
-  const [events, setEvents] = useState<Event[] | null>(null);
+// back to any past version. Read-only; the parent owns "Back to live".
+export function Timeline({ project, events }: { project: Project; events: Event[] }) {
   const [version, setVersion] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [hover, setHover] = useState<{ v: number; x: number } | null>(null);
 
-  const maxVersion = events && events.length ? events[events.length - 1].version : 0;
+  const maxVersion = events.length ? events[events.length - 1].version : 0;
 
   // Timestamp of the state as of a version (the last event at or before it).
   const tsAt = (v: number): string | null => {
-    const e = events ? eventAt(events, v) : undefined;
+    const e = eventAt(events, v);
     return e ? fmt(e.createdAt) : null;
   };
 
+  // Start at "now" whenever the log changes.
   useEffect(() => {
-    api.listAllEvents(project.id).then((evs) => {
-      setEvents(evs);
-      setVersion(evs.length ? evs[evs.length - 1].version : 0); // start at "now"
-    });
-  }, [project.id]);
+    setVersion(maxVersion);
+  }, [maxVersion]);
 
   // Playback: step forward ~600ms until we reach the end.
   const timer = useRef<number | null>(null);
@@ -72,19 +68,14 @@ export function Timeline({ project, onClose }: { project: Project; onClose: () =
   }, [playing, maxVersion]);
 
   const tasks = useMemo(
-    () => (events ? Object.values(reconstructTasks(events, version)) : []),
+    () => Object.values(reconstructTasks(events, version)),
     [events, version]
   );
-  const current = events ? eventAt(events, version) : undefined;
-
-  if (!events) return <p className="empty">Loading history…</p>;
+  const current = eventAt(events, version);
 
   return (
     <div className="history">
       <div className="history-bar">
-        <button className="ghost-btn small" onClick={onClose}>
-          ← Back to live
-        </button>
         <button
           className="ghost-btn small"
           onClick={() => {

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { api } from "../api/client";
 import { wsURL } from "../api/ws";
 import { applyTaskEvent } from "../lib/applyEvent";
+
 import type { Comment, Event, NewTaskInput, Project, Status, Task } from "../types";
 
 // Fields editable on an existing task (all optional / partial update).
@@ -46,6 +47,7 @@ export interface Sync {
   createTask: (input: NewTaskInput) => Promise<void>; // throws on failure
   moveTask: (id: string, status: Status) => Promise<void>;
   editTask: (id: string, fields: TaskEdit) => Promise<void>;
+  reorderTask: (id: string, position: number) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   loadComments: (taskId: string) => Promise<void>;
   addComment: (taskId: string, content: string) => Promise<void>;
@@ -176,8 +178,11 @@ export function useProjectSync(projectId: string | null): Sync {
       setError(null); // clear any stale error from a previous action
       setTasks((t) => ({ ...t, [id]: { ...prev, status } })); // optimistic
       try {
-        await api.updateTask(id, { status });
-        record(id, snapOf(prev), snapOf({ ...prev, status })); // for undo
+        // expectedRev: reject rather than clobber if someone else changed this
+        // task since we read it. The response carries the new rev.
+        const saved = await api.updateTask(id, { status, expectedRev: prev.rev });
+        setTasks((t) => ({ ...t, [id]: saved })); // authoritative state (fresh rev)
+        record(id, snapOf(prev), snapOf(saved)); // for undo
       } catch (e) {
         setTasks((t) => ({ ...t, [id]: prev })); // rollback on failure
         setError(String(e));
@@ -205,18 +210,39 @@ export function useProjectSync(projectId: string | null): Sync {
       };
       setTasks((t) => ({ ...t, [id]: next })); // optimistic
       try {
-        await api.updateTask(id, {
+        const saved = await api.updateTask(id, {
           title: next.title,
           configuration: next.configuration,
           dependencies: next.dependencies,
+          expectedRev: prev.rev, // reject instead of clobbering a concurrent edit
         });
-        record(id, snapOf(prev), snapOf(next)); // for undo
+        setTasks((t) => ({ ...t, [id]: saved })); // authoritative state (fresh rev)
+        record(id, snapOf(prev), snapOf(saved)); // for undo
       } catch (e) {
         setTasks((t) => ({ ...t, [id]: prev })); // rollback
         setError(String(e));
       }
     },
     [tasks, record]
+  );
+
+  // Place a task at a given fractional position in the manual ordering. Only the
+  // moved task changes; the caller computes the position from its neighbours.
+  const reorderTask = useCallback(
+    async (id: string, position: number) => {
+      const prev = tasks[id];
+      if (!prev) return;
+      setError(null);
+      setTasks((t) => ({ ...t, [id]: { ...prev, position } })); // optimistic
+      try {
+        const saved = await api.updateTask(id, { position, expectedRev: prev.rev });
+        setTasks((t) => ({ ...t, [id]: saved }));
+      } catch (e) {
+        setTasks((t) => ({ ...t, [id]: prev })); // rollback
+        setError(String(e));
+      }
+    },
+    [tasks]
   );
 
   const deleteTask = useCallback(
@@ -304,6 +330,7 @@ export function useProjectSync(projectId: string | null): Sync {
     createTask,
     moveTask,
     editTask,
+    reorderTask,
     deleteTask,
     loadComments,
     addComment,

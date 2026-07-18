@@ -30,6 +30,8 @@ export interface Task {
   configuration: TaskConfiguration;
   dependencies: string[];
   createdAt: string;
+  rev: number; // bumped on each update; sent back as expectedRev for optimistic concurrency
+  position: number; // fractional rank for manual ordering (backlog view)
 }
 
 export interface Comment {

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { api } from "../api/client";
 import { PRIORITIES, PRIORITY_LABEL, STATUS_LABEL } from "../constants";
 import type { Sync } from "../hooks/useProjectSync";
-import { STATUSES, type Status, type Task } from "../types";
+import { STATUSES, type Event, type Status, type Task } from "../types";
+import { ActivityFeed } from "./ActivityFeed";
 
 interface Props {
   task: Task;
@@ -16,8 +18,15 @@ interface Props {
 export function TaskDetail({ task, sync, onClose }: Props) {
   const [text, setText] = useState("");
   const [addingDep, setAddingDep] = useState(false);
+  const [events, setEvents] = useState<Event[] | null>(null);
   const comments = sync.comments[task.id] || [];
   const loadedFor = useRef<string | null>(null);
+
+  // This task's own change history. Refetched when the project version moves so
+  // newly-made changes show up without reopening the panel.
+  useEffect(() => {
+    api.listAllEvents(task.projectId).then(setEvents).catch(() => setEvents([]));
+  }, [task.projectId, sync.project?.version]);
 
   useEffect(() => {
     if (loadedFor.current !== task.id) {
@@ -173,6 +182,13 @@ export function TaskDetail({ task, sync, onClose }: Props) {
         />
         <button onClick={send}>Send</button>
       </div>
+
+      <h4>Activity</h4>
+      {events && sync.project ? (
+        <ActivityFeed events={events} project={sync.project} taskId={task.id} />
+      ) : (
+        <p className="muted">Loading…</p>
+      )}
     </aside>
   );
 }

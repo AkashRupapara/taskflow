@@ -12,6 +12,8 @@ const task = (id: string, over: Partial<Task> = {}): Task => ({
   configuration: { priority: "", description: "", tags: [], customFields: {} },
   dependencies: [],
   createdAt: "2026-07-17T00:00:00Z",
+  rev: 0,
+  position: 1,
   ...over,
 });
 

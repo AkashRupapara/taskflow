@@ -10,6 +10,7 @@ import {
 import type { Sync } from "../hooks/useProjectSync";
 import { STATUSES, type Status } from "../types";
 import { Column } from "./Column";
+import { byPosition } from "../lib/order";
 
 // The Kanban board: three status columns with drag-and-drop between them.
 // Dropping a card onto a column moves the task to that status. Opening a task
@@ -45,7 +46,7 @@ export function Board({ sync, onOpen }: { sync: Sync; onOpen: (id: string) => vo
             <Column
               key={status}
               status={status}
-              tasks={tasks.filter((t) => t.status === status)}
+              tasks={tasks.filter((t) => t.status === status).sort(byPosition)}
               sync={sync}
               onOpen={onOpen}
             />

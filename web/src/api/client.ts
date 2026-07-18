@@ -1,11 +1,13 @@
 // REST client. All calls go through the Vite proxy to the Go API, so paths are
 // relative (/api/...). Mutations return the updated entity.
+import { getActor } from "../lib/actor";
 import type { Comment, Event, NewTaskInput, Project, Task, TaskConfiguration } from "../types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    // X-Actor attributes the change in the event log's audit trail.
+    headers: { "Content-Type": "application/json", "X-Actor": getActor(), ...init?.headers },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -51,6 +53,8 @@ export const api = {
       status: string;
       configuration: TaskConfiguration;
       dependencies: string[];
+      expectedRev: number;
+      position: number;
     }>
   ) => req<Task>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteTask: (id: string) => req<{ status: string }>(`/tasks/${id}`, { method: "DELETE" }),
