@@ -238,7 +238,8 @@ real-time layer needs: `version` for ordering, `rev` for conflict detection,
 ### Load testing results
 
 Against a project seeded with **10,000 tasks**
-([`scripts/seed.sh`](scripts/seed.sh), [`scripts/loadtest.py`](scripts/loadtest.py)):
+([`scripts/seed.sh`](scripts/seed.sh), [`scripts/loadtest.py`](scripts/loadtest.py)),
+on a laptop with the API and Postgres on the same machine:
 
 | Metric | Result |
 | --- | --- |
@@ -246,6 +247,16 @@ Against a project seeded with **10,000 tasks**
 | Single page (200 tasks) | ~6 ms |
 | Throughput @ 50 connections | ~1,090 req/s, 0 errors |
 | Latency p50 / p95 / p99 | 44 / 57 / 117 ms |
+
+Run with the rate limiter **off**, to measure the server rather than the limiter:
+
+```bash
+RATE_LIMIT_RPS=0 DATABASE_URL=… go run .      # then:
+./scripts/loadtest.py <project-id> 50 10000
+```
+
+With the default limit (100 req/s, burst 300) the same run is capped and returns
+`429`s once the bucket drains - which is the limiter working, not a regression.
 
 ## Testing & developer experience
 
