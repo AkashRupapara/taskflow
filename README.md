@@ -16,9 +16,11 @@ Postgres is the store, and an append-only event log drives efficient delta sync.
 - Comment threads on tasks, updated in real-time
 - Changes by one client appear on all others in near real-time
 - Consistency across clients via per-project event versioning + reconnect catch-up
-- Kanban board with drag-and-drop between columns (chosen extension)
+- Two views: Kanban **board** (drag-and-drop between columns) and a ranked
+  **backlog** list where tasks can be moved up/down to set priority
 - Jira-style task ids (e.g. `WR-1`), a create modal, and a non-blocking detail panel
 - Undo/Redo of task moves and edits (Cmd/Ctrl+Z), built on before/after snapshots
+- Activity log: who changed what, when - at project level and per task
 - Time-travel: scrub the board back to any past version by replaying the event log
 - Scales to 10k+ tasks per project (virtual scrolling + keyset pagination + indexing)
 
@@ -130,6 +132,8 @@ erDiagram
     text_array assigned_to
     jsonb configuration "priority, description, tags, customFields"
     text_array dependencies "task ids that block this one"
+    int rev "optimistic-concurrency revision"
+    double position "fractional rank for manual ordering"
     timestamptz created_at
   }
   COMMENTS {
@@ -158,9 +162,9 @@ erDiagram
 - Task `dependencies` is a `text[]` of task ids; a recursive-CTE check rejects any
   edit that would create a dependency cycle.
 
-**Indexes** (see [0001](api/internal/db/migrations/0001_init.up.sql) / [0002](api/internal/db/migrations/0002_task_pagination_index.up.sql))
-- `(project_id, created_at, id)` on `tasks` - keyset pagination as an index-only
-  scan (no sort), flat latency at 10k+ tasks.
+**Indexes** (see [migrations](api/internal/db/migrations))
+- `(project_id, position, id)` on `tasks` - keyset pagination in the user's chosen
+  order, as an index scan with no sort; flat latency at 10k+ tasks.
 - `(project_id, status)` on `tasks` - column grouping for the board.
 - `(project_id, version)` on `events` - fast catch-up (`WHERE version > N`).
 - `(task_id)` on `comments` - thread loads.
@@ -183,7 +187,52 @@ erDiagram
    `UPDATE ... RETURNING`, which row-locks the project and serializes concurrent
    writers, giving every client the same event order.
 
-## Time-travel (open-ended extension)
+## Board and backlog views
+
+The **Board** groups tasks by status for day-to-day flow. The **Backlog** is a
+single ranked list of every task, reordered with ↑/↓.
+
+Ordering uses a **fractional rank**: moving a task stores the midpoint of its new
+neighbours' positions (e.g. between 2 and 3 → 2.5), so a reorder is a *single-row
+update* rather than renumbering everything below it. The list query and the
+keyset pagination cursor both order by `(position, id)`, so paging stays
+consistent with whatever order the user has chosen.
+
+*Tradeoff:* repeatedly halving the same gap eventually exhausts float precision
+(~50 moves into the identical slot). The standard fix is to renormalise a
+project's positions to 1..n in a background job; Jira solved this with LexoRank
+strings. Not implemented here - documented rather than hidden.
+
+## Activity log & time-travel (open-ended extension)
+
+The **History** view offers two reads of the same event log:
+
+- **Activity** - a plain-language audit trail: `Dhruvi · WR-3 Build homepage ·
+  status In Progress → Done · 2m ago`. The same feed, filtered to one task,
+  appears inside that task's detail panel (like Jira's issue history).
+- **Board at time** - the time-travel scrubber described below.
+
+Field-level changes ("status In Progress → Done") are **derived**, not stored:
+each `task.updated` event carries the full task, and
+[`diffTasks`](web/src/lib/diff.ts) compares consecutive snapshots while
+[`buildActivity`](web/src/lib/activity.ts) walks the log. Both are pure functions
+and unit tested.
+
+**Tradeoffs worth naming:**
+
+- *Attribution is not authentication.* `X-Actor` is a client-supplied display
+  name kept in localStorage, so the log currently reads "Akash" because the
+  client said so - and "someone" when it says nothing. There is no login in this
+  build. When real auth is added, the server derives the actor from the session
+  instead and **every existing event keeps working unchanged**, because the
+  `actor` field is already part of the event schema.
+- *Snapshots over explicit deltas.* Events store the whole entity rather than
+  `{field: {from, to}}`. That keeps replay trivial and idempotent (the same fold
+  powers live sync, catch-up, and time-travel) at the cost of computing diffs on
+  read. Storing explicit deltas would make the activity log cheaper to render but
+  complicate replay.
+
+## Time-travel
 
 The "History" button replays a project's event log so you can **scrub the board
 back to any past version** - drag the slider (or hit Play) and watch tasks
@@ -209,12 +258,18 @@ rather than a bolted-on feature.
   in single-digit milliseconds (see [scripts/seed.sh](scripts/seed.sh)).
 - **Rendering at scale.** The board virtualizes each column, so only visible cards
   mount - a 3,000-task column stays smooth.
-- **Horizontal scale (documented path).** The hub is an in-process publisher today
-  (single API instance). To run multiple API instances, swap the in-process
-  publisher for **Postgres `LISTEN/NOTIFY`** (notify with `projectId + version`,
-  each instance fetches and fans out) or **Redis pub/sub**. Because the store
-  already publishes through a `Publisher` interface, this is a drop-in change with
-  no domain code touched.
+- **Horizontal scale (implemented).** Events fan out across API instances via
+  Postgres **`LISTEN/NOTIFY`**. The notification is emitted *inside* the writing
+  transaction (so Postgres only delivers it on commit) and carries just
+  `projectId + version + origin` - well under the 8KB payload cap. Every instance
+  listens, skips the echo of its own writes, fetches the event row, and delivers
+  it to its own subscribers. Verified with two instances: a client connected to
+  instance B receives changes written through instance A. Swapping this for Redis
+  Streams or Kafka later is a drop-in change behind the same `Publisher` seam.
+- **Optimistic concurrency.** Each task carries a `rev`; clients send the rev they
+  read as `expectedRev`. A write against a stale rev is rejected with `409` rather
+  than silently overwriting a concurrent edit, turning last-writer-wins into an
+  explicit, resolvable conflict.
 - **Backpressure.** Each client has a bounded send buffer; a slow client's
   messages are dropped rather than blocking the hub, and it re-syncs from its last
   version on reconnect.
@@ -274,10 +329,11 @@ suite always runs standalone.
 - **CI:** [.github/workflows/ci.yml](.github/workflows/ci.yml) runs three jobs on
   every push/PR - backend (vet + tests against a Postgres service), frontend
   (typecheck + build + unit), and e2e (boots API + Postgres, runs Playwright).
-- **API docs:** OpenAPI 3.0 spec at
-  [openapi.yaml](api/internal/server/openapi.yaml), served live at
-  `GET /api/openapi.yaml`. Paste into <https://editor.swagger.io> for an
-  interactive UI.
+- **API docs:** browsable **Swagger UI at <http://localhost:8080/api/docs>** while
+  the API is running, backed by the OpenAPI 3.0 spec at
+  [openapi.yaml](api/internal/server/openapi.yaml) (also served raw at
+  `GET /api/openapi.yaml`). Both are embedded in the binary; the UI pulls its
+  assets from a CDN, while the raw spec works offline.
 - **Migrations & seeding:** migrations are embedded and applied on startup
   (tracked in `schema_migrations`). Seed data via `./scripts/seed-demo.sh` (small
   demo project with a dependency chain) or `./scripts/seed.sh <n>` (n tasks).
