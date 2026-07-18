@@ -211,6 +211,61 @@ erDiagram
   written rarely) with invalidation on any project write. The same read-through
   pattern extends to Redis for a multi-instance deployment.
 
+## Load testing results
+
+Measured on the local Docker stack against a project seeded with **10,000 tasks**
+(`./scripts/seed.sh 10000`). Scripts: [seed.sh](scripts/seed.sh) (bulk insert +
+single-query timing + `EXPLAIN`) and [loadtest.py](scripts/loadtest.py)
+(concurrent benchmark).
+
+The paginated list query is an **index-only scan with no sort** at 10k rows:
+
+```
+Index Only Scan using idx_tasks_project_created on tasks
+```
+
+Single-page latency is ~5-6 ms for `GET /projects/{id}/tasks?limit=200`.
+
+**Concurrent load** (`loadtest.py <id> 50 10000`, rate limiter disabled to measure
+raw capacity):
+
+| Metric | Result |
+| --- | --- |
+| Requests | 10,000 (0 errors) |
+| Concurrency | 50 connections |
+| Throughput | ~1,090 req/s (~220k task rows/s, 200 per page) |
+| Latency p50 | ~44 ms |
+| Latency p95 | ~57 ms |
+| Latency p99 | ~117 ms |
+
+Latency stays flat as the dataset grows because pagination is keyset (index range
+scan), not `OFFSET`. Under abuse, the rate limiter holds: 500 requests fired as
+fast as possible from one client (limit 100 req/s, burst 300) let 349 through and
+rejected 151 with `429`.
+
+## Testing & developer experience
+
+| Layer | Tool | Covers | Run |
+| --- | --- | --- | --- |
+| Backend unit | `go test` | status/dependency rules, cursor codec, key gen | `cd api && go test ./...` |
+| Backend integration | `go test` + Postgres | REST CRUD, dependency 409, cycle 409, pagination, events | `cd api && DATABASE_URL=... go test ./...` |
+| Frontend unit | Vitest | event-apply reducer (idempotent upsert/delete) | `cd web && npm test` |
+| E2E | Playwright | create project → add task → see it on the board | `cd web && npm run test:e2e` |
+
+Integration tests skip automatically when no `DATABASE_URL` is set, so the unit
+suite always runs standalone.
+
+- **CI:** [.github/workflows/ci.yml](.github/workflows/ci.yml) runs three jobs on
+  every push/PR - backend (vet + tests against a Postgres service), frontend
+  (typecheck + build + unit), and e2e (boots API + Postgres, runs Playwright).
+- **API docs:** OpenAPI 3.0 spec at
+  [openapi.yaml](api/internal/server/openapi.yaml), served live at
+  `GET /api/openapi.yaml`. Paste into <https://editor.swagger.io> for an
+  interactive UI.
+- **Migrations & seeding:** migrations are embedded and applied on startup
+  (tracked in `schema_migrations`). Seed data via `./scripts/seed-demo.sh` (small
+  demo project with a dependency chain) or `./scripts/seed.sh <n>` (n tasks).
+
 ## Tradeoffs
 
 - **In-process hub** keeps the design simple and fast for a single instance; multi

@@ -3,6 +3,7 @@
 package server
 
 import (
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,9 @@ import (
 
 	"taskflow/internal/store"
 )
+
+//go:embed openapi.yaml
+var openAPISpec []byte
 
 type Server struct {
 	store *store.Store
@@ -39,7 +43,15 @@ func (s *Server) Routes() *http.ServeMux {
 	// Catch-up feed for reconnecting clients (Phase 2 uses this over WS).
 	mux.HandleFunc("GET /api/projects/{id}/events", s.listEvents)
 
+	// API documentation (OpenAPI 3.0 spec, embedded in the binary).
+	mux.HandleFunc("GET /api/openapi.yaml", s.openAPI)
+
 	return mux
+}
+
+func (s *Server) openAPI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	_, _ = w.Write(openAPISpec)
 }
 
 // --- projects ---

@@ -1,0 +1,237 @@
+openapi: 3.0.3
+info:
+  title: TaskFlow API
+  version: "1.0.0"
+  description: >
+    Collaborative real-time task management. REST for reads and mutations;
+    realtime deltas are delivered over a WebSocket at /ws (see the Realtime
+    section at the bottom). Every mutation appends to an append-only event log
+    and broadcasts only the changed entity, never the whole project.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/health:
+    get:
+      summary: Liveness + database ping
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Health" } } } }
+        "503": { description: Database unreachable }
+
+  /api/projects:
+    get:
+      summary: List projects
+      responses:
+        "200":
+          description: All projects, newest first
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Project" } } } }
+    post:
+      summary: Create a project
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProjectInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/projects/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Get a project
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update a project (replaces name, description, metadata)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProjectInput" } } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Delete a project (cascades to tasks, comments, events)
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/projects/{id}/tasks:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: List tasks (keyset / cursor pagination)
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: cursor, in: query, schema: { type: string }, description: "Opaque nextCursor from a previous page" }
+      responses:
+        "200":
+          description: A page of tasks
+          content: { application/json: { schema: { $ref: "#/components/schemas/TaskPage" } } }
+    post:
+      summary: Create a task
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TaskInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Task" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/tasks/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      summary: Update a task (partial)
+      description: >
+        Any field may be sent. Setting status to "done" while a dependency is not
+        done returns 409. Setting dependencies that would form a cycle returns 409.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TaskPatch" } } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/Task" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      summary: Delete a task
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/tasks/{id}/comments:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: List a task's comments
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Comment" } } } } }
+    post:
+      summary: Add a comment
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CommentInput" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Comment" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/projects/{id}/events:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Catch-up event feed (events after a version)
+      description: Used by reconnecting clients; the WebSocket delivers the same events live.
+      parameters:
+        - { name: since, in: query, schema: { type: integer, default: 0 }, description: "Return events with version > since" }
+        - { name: limit, in: query, schema: { type: integer, default: 200, maximum: 500 } }
+      responses:
+        "200": { description: Events oldest-first, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Event" } } } } }
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    BadRequest:
+      description: Invalid input
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: Dependency rule violated (unmet blocker or cycle)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Health:
+      type: object
+      properties: { status: { type: string, example: ok } }
+    Error:
+      type: object
+      properties: { error: { type: string } }
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        key: { type: string, description: "Short code for task ids, e.g. WR", example: WR }
+        description: { type: string }
+        metadata: { type: object }
+        version: { type: integer, description: "Last applied event version" }
+        createdAt: { type: string, format: date-time }
+    ProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        metadata: { type: object }
+    TaskConfiguration:
+      type: object
+      properties:
+        priority: { type: string, enum: ["", low, medium, high] }
+        description: { type: string }
+        tags: { type: array, items: { type: string } }
+        customFields: { type: object }
+    Task:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        number: { type: integer, description: "Sequential per project; display id is key-number" }
+        title: { type: string }
+        status: { type: string, enum: [todo, in_progress, done] }
+        assignedTo: { type: array, items: { type: string } }
+        configuration: { $ref: "#/components/schemas/TaskConfiguration" }
+        dependencies: { type: array, items: { type: string }, description: "Task ids that block this one" }
+        createdAt: { type: string, format: date-time }
+    TaskInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        status: { type: string, enum: [todo, in_progress, done], default: todo }
+        assignedTo: { type: array, items: { type: string } }
+        configuration: { $ref: "#/components/schemas/TaskConfiguration" }
+        dependencies: { type: array, items: { type: string } }
+    TaskPatch:
+      type: object
+      description: All fields optional; only provided fields change.
+      properties:
+        title: { type: string }
+        status: { type: string, enum: [todo, in_progress, done] }
+        assignedTo: { type: array, items: { type: string } }
+        configuration: { $ref: "#/components/schemas/TaskConfiguration" }
+        dependencies: { type: array, items: { type: string } }
+    TaskPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Task" } }
+        nextCursor: { type: string, description: "Empty when there are no more pages" }
+    Comment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+        content: { type: string }
+        author: { type: string }
+        createdAt: { type: string, format: date-time }
+    CommentInput:
+      type: object
+      required: [content, author]
+      properties:
+        content: { type: string }
+        author: { type: string }
+    Event:
+      type: object
+      description: One entry from the append-only log, also pushed over the WebSocket.
+      properties:
+        id: { type: integer }
+        projectId: { type: string, format: uuid }
+        version: { type: integer, description: "Per-project sequence number" }
+        type: { type: string, enum: [task.created, task.updated, task.deleted, comment.added, project.updated] }
+        payload: { type: object, description: "The changed entity (the delta)" }
+        actor: { type: string }
+        createdAt: { type: string, format: date-time }
+
+# Realtime (not expressible in OpenAPI):
+#   GET /ws?projectId=<uuid>&since=<version>  -> WebSocket
+#   Server pushes Event objects (JSON) as they are committed. On connect it
+#   replays events with version > since, then streams live deltas.

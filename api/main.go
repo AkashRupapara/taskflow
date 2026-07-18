@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -57,11 +58,19 @@ func main() {
 	})
 
 	// Per-IP token bucket: generous limits so normal use (incl. bulk snapshot
-	// loads) is never hit, but a flood is rejected with 429.
-	limiter := middleware.NewRateLimiter(100, 300)
+	// loads) is never hit, but a flood is rejected with 429. Configurable via env;
+	// set RATE_LIMIT_RPS=0 to disable (e.g. for load-testing raw capacity).
+	rps := envFloat("RATE_LIMIT_RPS", 100)
+	burst := int(envFloat("RATE_LIMIT_BURST", 300))
+	var handler http.Handler = mux
+	if rps > 0 {
+		handler = middleware.NewRateLimiter(rps, burst).Handler(mux)
+	} else {
+		log.Println("rate limiting disabled")
+	}
 
 	log.Printf("listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, withCORS(limiter.Handler(mux))); err != nil {
+	if err := http.ListenAndServe(":"+port, withCORS(handler)); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -106,6 +115,15 @@ func writeJSON(w http.ResponseWriter, v any) {
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envFloat(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
 	}
 	return fallback
 }
