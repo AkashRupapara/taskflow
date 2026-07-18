@@ -243,6 +243,34 @@ suite always runs standalone.
 - **Migrations & seeding:** applied automatically at startup;
   `./scripts/seed-demo.sh` for demo data, `./scripts/seed.sh <n>` for load data.
 
+## Challenges
+
+The two problems that shaped the design most.
+
+**1. Getting every client to agree on the order of changes - without a global lock.**
+Clients apply changes independently, so "who saw what first" has to be decided
+somewhere. A single global sequence would serialise every write in the system.
+Instead each project owns a counter, incremented as
+`UPDATE projects SET version = version + 1 … RETURNING version` inside the same
+transaction as the write. That row lock makes writers to *one project* queue up,
+which is exactly the scope where ordering matters - projects don't block each
+other. Clients then apply events in version order and ignore versions they have
+already seen, so replays and duplicates are harmless.
+
+*The cost, stated plainly:* a single very busy project is capped by how fast that
+one row can be updated - roughly hundreds of writes/second, bounded by commit
+latency. It scales horizontally across projects, not within one. Pushing past
+that means partitioning the log by `projectId` (Kafka/Redis Streams) or deriving
+order from Postgres' WAL via CDC instead of an application-level counter.
+
+**2. Concurrent edits silently overwriting each other.**
+Two people editing the same task both sent a full update, so whoever wrote last
+won and the other's change vanished with no error - invisible data loss. Each
+task now carries a `rev`; clients send the rev they read as `expectedRev`, and a
+write against a stale rev is rejected with `409` instead of applied. The bug
+becomes a visible, resolvable conflict rather than a silent one. See the
+tradeoffs below for what this still doesn't solve (field-level merging).
+
 ## Assumptions
 
 Deliberately out of scope, and what each would become in a real deployment:
