@@ -1,6 +1,6 @@
 // REST client. All calls go through the Vite proxy to the Go API, so paths are
 // relative (/api/...). Mutations return the updated entity.
-import type { Comment, NewTaskInput, Project, Task, TaskConfiguration } from "../types";
+import type { Comment, Event, NewTaskInput, Project, Task, TaskConfiguration } from "../types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -54,6 +54,19 @@ export const api = {
     }>
   ) => req<Task>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteTask: (id: string) => req<{ status: string }>(`/tasks/${id}`, { method: "DELETE" }),
+
+  // Full ordered event history for a project (paginated by version).
+  listAllEvents: async (projectId: string): Promise<Event[]> => {
+    const out: Event[] = [];
+    let since = 0;
+    for (;;) {
+      const batch = await req<Event[]>(`/projects/${projectId}/events?since=${since}&limit=500`);
+      out.push(...batch);
+      if (batch.length < 500) break;
+      since = batch[batch.length - 1].version;
+    }
+    return out;
+  },
 
   listComments: (taskId: string) => req<Comment[]>(`/tasks/${taskId}/comments`),
   addComment: (taskId: string, content: string, author: string) =>

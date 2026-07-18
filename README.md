@@ -19,6 +19,7 @@ Postgres is the store, and an append-only event log drives efficient delta sync.
 - Kanban board with drag-and-drop between columns (chosen extension)
 - Jira-style task ids (e.g. `WR-1`), a create modal, and a non-blocking detail panel
 - Undo/Redo of task moves and edits (Cmd/Ctrl+Z), built on before/after snapshots
+- Time-travel: scrub the board back to any past version by replaying the event log
 - Scales to 10k+ tasks per project (virtual scrolling + keyset pagination + indexing)
 
 ## Tech stack and why
@@ -181,6 +182,21 @@ erDiagram
 5. **Ordering / consistency.** `appendEvent` increments the project version with
    `UPDATE ... RETURNING`, which row-locks the project and serializes concurrent
    writers, giving every client the same event order.
+
+## Time-travel (open-ended extension)
+
+The "History" button replays a project's event log so you can **scrub the board
+back to any past version** - drag the slider (or hit Play) and watch tasks
+un-move, reappear, and revert. It's read-only; "Back to live" resumes editing.
+
+This exists *because* the backend is event-sourced, and it reuses the exact same
+[`applyTaskEvent`](web/src/lib/applyEvent.ts) reducer the live client uses:
+reconstructing the state at version N is just folding events `1..N` from an empty
+map ([`reconstructTasks`](web/src/lib/history.ts)). History and live can never
+disagree because they run the identical fold. Both functions are pure and unit
+tested. It's the clearest demonstration that the event log was the right call - a
+capability most task tools can't offer, delivered by an architectural decision
+rather than a bolted-on feature.
 
 ## Scaling strategy
 

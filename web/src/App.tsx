@@ -6,6 +6,7 @@ import { Board } from "./components/Board";
 import { TaskModal } from "./components/TaskModal";
 import { ProjectModal } from "./components/ProjectModal";
 import { TaskDetail } from "./components/TaskDetail";
+import { Timeline } from "./components/Timeline";
 import type { Project } from "./types";
 import "./styles.css";
 
@@ -18,6 +19,7 @@ export function App() {
   const [creatingTask, setCreatingTask] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [openTask, setOpenTask] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const sync = useProjectSync(selected);
 
   const refreshProjects = () =>
@@ -30,9 +32,10 @@ export function App() {
     refreshProjects();
   }, []);
 
-  // Close the detail panel when switching projects.
+  // Close the detail panel and exit history when switching projects.
   useEffect(() => {
     setOpenTask(null);
+    setHistoryOpen(false);
   }, [selected]);
 
   // Keyboard shortcuts: Cmd/Ctrl+Z to undo, Cmd/Ctrl+Shift+Z to redo.
@@ -87,6 +90,13 @@ export function App() {
                 >
                   ↷ Redo
                 </button>
+                <button
+                  className="ghost-btn small"
+                  onClick={() => setHistoryOpen(true)}
+                  title="Replay the project's history"
+                >
+                  ⟲ History
+                </button>
                 <button className="primary-btn" onClick={() => setCreatingTask(true)}>
                   + New Task
                 </button>
@@ -101,7 +111,11 @@ export function App() {
               onBlur={(e) => sync.editProject({ description: e.target.value })}
             />
             {sync.error && <div className="error">{sync.error}</div>}
-            <Board sync={sync} onOpen={setOpenTask} />
+            {historyOpen ? (
+              <Timeline project={sync.project} onClose={() => setHistoryOpen(false)} />
+            ) : (
+              <Board sync={sync} onOpen={setOpenTask} />
+            )}
             {creatingTask && <TaskModal sync={sync} onClose={() => setCreatingTask(false)} />}
           </>
         ) : (

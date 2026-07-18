@@ -476,3 +476,67 @@ select.field-input {
 .del-inline:hover {
   color: #a12020;
 }
+
+/* Time-travel / history view */
+.history-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #1f2430;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-top: 14px;
+}
+.history-bar .ghost-btn {
+  color: #cfd3dc;
+  border-color: #3a4252;
+}
+.history-bar .ghost-btn:hover {
+  background: #2a3140;
+}
+.history-slider-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+.history-slider {
+  flex: 1;
+  accent-color: #6f8bff;
+  cursor: pointer;
+}
+.history-tip {
+  position: absolute;
+  bottom: 22px;
+  transform: translateX(-50%);
+  background: #0d1017;
+  color: #eef;
+  border: 1px solid #3a4252;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.history-pos {
+  color: #cfd3dc;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 74px;
+  text-align: right;
+}
+.history-caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 10px 2px;
+  font-size: 13.5px;
+}
+.history-latest {
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.history-board .card {
+  cursor: default;
+}
