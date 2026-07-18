@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"taskflow/internal/db"
+	"taskflow/internal/middleware"
 	"taskflow/internal/server"
 	"taskflow/internal/store"
 	"taskflow/internal/ws"
@@ -55,8 +56,12 @@ func main() {
 		writeJSON(w, map[string]string{"status": status})
 	})
 
+	// Per-IP token bucket: generous limits so normal use (incl. bulk snapshot
+	// loads) is never hit, but a flood is rejected with 429.
+	limiter := middleware.NewRateLimiter(100, 300)
+
 	log.Printf("listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, withCORS(mux)); err != nil {
+	if err := http.ListenAndServe(":"+port, withCORS(limiter.Handler(mux))); err != nil {
 		log.Fatal(err)
 	}
 }

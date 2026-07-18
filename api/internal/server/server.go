@@ -173,6 +173,8 @@ func statusFor(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, store.ErrDependencyNotMet):
 		return http.StatusConflict
+	case errors.Is(err, store.ErrDependencyCycle):
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}

@@ -10,6 +10,7 @@ import (
 type Project struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
+	Key         string          `json:"key"` // short code, e.g. WR (for task ids like WR-1)
 	Description string          `json:"description"`
 	Metadata    json.RawMessage `json:"metadata"`
 	Version     int64           `json:"version"` // last applied event version
@@ -27,6 +28,7 @@ type TaskConfiguration struct {
 type Task struct {
 	ID            string            `json:"id"`
 	ProjectID     string            `json:"projectId"`
+	Number        int64             `json:"number"` // sequential per project; display id is project.key-number
 	Title         string            `json:"title"`
 	Status        string            `json:"status"`
 	AssignedTo    []string          `json:"assignedTo"`
@@ -74,7 +76,8 @@ var validStatuses = map[string]bool{
 func IsValidStatus(s string) bool { return validStatuses[s] }
 
 // StatusNeedsDependencies reports whether moving into this status requires all
-// dependencies to be done first (you can always move back to todo).
+// dependencies to be done first. A task cannot be closed (done) while any of its
+// blockers are still open; earlier statuses are always allowed.
 func StatusNeedsDependencies(s string) bool {
-	return s == "in_progress" || s == "done"
+	return s == "done"
 }

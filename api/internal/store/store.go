@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,6 +21,7 @@ var (
 	ErrNotFound         = errors.New("not found")
 	ErrInvalidStatus    = errors.New("invalid status")
 	ErrDependencyNotMet = errors.New("dependencies not done")
+	ErrDependencyCycle  = errors.New("dependency would create a cycle")
 )
 
 // Publisher receives events after their transaction commits, so subscribers
@@ -31,9 +33,23 @@ type Publisher interface {
 type Store struct {
 	pool      *pgxpool.Pool
 	publisher Publisher
+
+	// Read-through cache for the project list (hit on every sidebar load,
+	// changes rarely). Invalidated on any project create/update/delete.
+	cacheMu       sync.RWMutex
+	projectsCache []domain.Project
+	cacheValid    bool
 }
 
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+
+// invalidateProjects drops the cached project list after a write.
+func (s *Store) invalidateProjects() {
+	s.cacheMu.Lock()
+	s.cacheValid = false
+	s.projectsCache = nil
+	s.cacheMu.Unlock()
+}
 
 // SetPublisher wires an event sink (the hub). Optional; nil means no broadcast.
 func (s *Store) SetPublisher(p Publisher) { s.publisher = p }

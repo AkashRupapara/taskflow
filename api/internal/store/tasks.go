@@ -60,7 +60,7 @@ func (s *Store) ListTasks(ctx context.Context, projectID string, limit int, curs
 	args = append(args, limit+1) // fetch one extra to know if there's a next page
 
 	query := fmt.Sprintf(
-		`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at
+		`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number
 		 FROM tasks WHERE %s ORDER BY created_at, id LIMIT $%d`, where, len(args))
 
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -106,13 +106,24 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, in TaskInput) 
 		if err := checkDependencies(ctx, tx, in.Status, in.Dependencies); err != nil {
 			return err
 		}
+		// Claim the next per-project task number (locks the project row too).
+		var number int64
+		err := tx.QueryRow(ctx,
+			`UPDATE projects SET task_seq = task_seq + 1 WHERE id = $1 RETURNING task_seq`,
+			projectID).Scan(&number)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+
 		cfg, _ := json.Marshal(in.Configuration)
 		row := tx.QueryRow(ctx,
-			`INSERT INTO tasks (project_id, title, status, assigned_to, configuration, dependencies)
-			 VALUES ($1, $2, $3, $4, $5, $6)
-			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at`,
-			projectID, in.Title, in.Status, in.AssignedTo, cfg, in.Dependencies)
-		var err error
+			`INSERT INTO tasks (project_id, number, title, status, assigned_to, configuration, dependencies)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number`,
+			projectID, number, in.Title, in.Status, in.AssignedTo, cfg, in.Dependencies)
 		if t, err = scanTask(row); err != nil {
 			return err
 		}
@@ -134,7 +145,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// Load current state (locked) so we can merge the patch onto it.
 		row := tx.QueryRow(ctx,
-			`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at
+			`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number
 			 FROM tasks WHERE id = $1 FOR UPDATE`, id)
 		cur, err := scanTask(row)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -161,6 +172,13 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 		}
 		if patch.Dependencies != nil {
 			cur.Dependencies = *patch.Dependencies
+			cyclic, err := wouldCreateCycle(ctx, tx, id, cur.Dependencies)
+			if err != nil {
+				return err
+			}
+			if cyclic {
+				return ErrDependencyCycle
+			}
 		}
 		if err := checkDependencies(ctx, tx, cur.Status, cur.Dependencies); err != nil {
 			return err
@@ -170,7 +188,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 		row = tx.QueryRow(ctx,
 			`UPDATE tasks SET title=$2, status=$3, assigned_to=$4, configuration=$5, dependencies=$6
 			 WHERE id=$1
-			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at`,
+			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number`,
 			id, cur.Title, cur.Status, orEmpty(cur.AssignedTo), cfg, orEmpty(cur.Dependencies))
 		if t, err = scanTask(row); err != nil {
 			return err
@@ -206,6 +224,31 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	return nil
 }
 
+// wouldCreateCycle reports whether making taskID depend on deps introduces a
+// cycle - i.e. taskID is reachable by following the dependency edges out of
+// deps. A recursive CTE walks the graph in the database in one round-trip.
+func wouldCreateCycle(ctx context.Context, tx pgx.Tx, taskID string, deps []string) (bool, error) {
+	if len(deps) == 0 {
+		return false, nil
+	}
+	for _, d := range deps {
+		if d == taskID {
+			return true, nil // direct self-dependency
+		}
+	}
+	var cycle bool
+	err := tx.QueryRow(ctx, `
+		WITH RECURSIVE reach(id) AS (
+			SELECT unnest($1::text[])
+			UNION
+			SELECT unnest(t.dependencies)
+			FROM tasks t JOIN reach r ON t.id::text = r.id
+		)
+		SELECT EXISTS (SELECT 1 FROM reach WHERE id = $2)`,
+		deps, taskID).Scan(&cycle)
+	return cycle, err
+}
+
 // checkDependencies enforces that a task entering in_progress/done has all of
 // its dependency tasks already done.
 func checkDependencies(ctx context.Context, tx pgx.Tx, status string, deps []string) error {
@@ -228,7 +271,7 @@ func checkDependencies(ctx context.Context, tx pgx.Tx, status string, deps []str
 func scanTask(row pgx.Row) (domain.Task, error) {
 	var t domain.Task
 	var cfg []byte
-	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Status, &t.AssignedTo, &cfg, &t.Dependencies, &t.CreatedAt)
+	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Status, &t.AssignedTo, &cfg, &t.Dependencies, &t.CreatedAt, &t.Number)
 	if err != nil {
 		return t, err
 	}
