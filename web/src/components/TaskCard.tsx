@@ -29,6 +29,7 @@ export function TaskCard({ task, sync, onOpen }: Props) {
       >
         ✕
       </button>
+      {sync.project && <div className="card-id">{sync.project.key}-{task.number}</div>}
       <div className="card-title">{task.title}</div>
       <div className="card-meta">
         {task.configuration.priority && (

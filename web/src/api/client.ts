@@ -1,6 +1,6 @@
 // REST client. All calls go through the Vite proxy to the Go API, so paths are
 // relative (/api/...). Mutations return the updated entity.
-import type { Comment, Project, Task, TaskConfiguration } from "../types";
+import type { Comment, NewTaskInput, Project, Task, TaskConfiguration } from "../types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -19,6 +19,11 @@ export const api = {
   getProject: (id: string) => req<Project>(`/projects/${id}`),
   createProject: (name: string) =>
     req<Project>("/projects", { method: "POST", body: JSON.stringify({ name }) }),
+  // PATCH replaces the whole project, so callers pass the full current values.
+  updateProject: (
+    id: string,
+    input: { name: string; description: string; metadata: Record<string, unknown> }
+  ) => req<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
 
   // Task lists are cursor-paginated; walk all pages for the board snapshot.
   listAllTasks: async (projectId: string): Promise<Task[]> => {
@@ -34,14 +39,19 @@ export const api = {
     return out;
   },
 
-  createTask: (projectId: string, title: string) =>
+  createTask: (projectId: string, input: NewTaskInput) =>
     req<Task>(`/projects/${projectId}/tasks`, {
       method: "POST",
-      body: JSON.stringify({ title }),
+      body: JSON.stringify(input),
     }),
   updateTask: (
     id: string,
-    patch: Partial<{ title: string; status: string; configuration: TaskConfiguration }>
+    patch: Partial<{
+      title: string;
+      status: string;
+      configuration: TaskConfiguration;
+      dependencies: string[];
+    }>
   ) => req<Task>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteTask: (id: string) => req<{ status: string }>(`/tasks/${id}`, { method: "DELETE" }),
 

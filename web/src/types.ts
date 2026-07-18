@@ -6,6 +6,7 @@ export const STATUSES: Status[] = ["todo", "in_progress", "done"];
 export interface Project {
   id: string;
   name: string;
+  key: string; // short code for task ids, e.g. "WR"
   description: string;
   metadata: Record<string, unknown>;
   version: number;
@@ -22,6 +23,7 @@ export interface TaskConfiguration {
 export interface Task {
   id: string;
   projectId: string;
+  number: number; // sequential per project; display id is `${project.key}-${number}`
   title: string;
   status: Status;
   assignedTo: string[];
@@ -36,6 +38,15 @@ export interface Comment {
   content: string;
   author: string;
   createdAt: string;
+}
+
+// Payload for creating a task (mirrors the Go store.TaskInput).
+export interface NewTaskInput {
+  title: string;
+  status: Status;
+  configuration: TaskConfiguration;
+  dependencies: string[];
+  assignedTo: string[];
 }
 
 // One entry from the append-only log, delivered over the WebSocket.

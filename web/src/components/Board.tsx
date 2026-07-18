@@ -10,12 +10,12 @@ import {
 import type { Sync } from "../hooks/useProjectSync";
 import { STATUSES, type Status } from "../types";
 import { Column } from "./Column";
-import { TaskDetail } from "./TaskDetail";
 
 // The Kanban board: three status columns with drag-and-drop between them.
-// Dropping a card onto a column moves the task to that status.
-export function Board({ sync }: { sync: Sync }) {
-  const [openTask, setOpenTask] = useState<string | null>(null);
+// Dropping a card onto a column moves the task to that status. Opening a task
+// is handled by the parent (onOpen) so the detail panel can render beside the
+// board without blocking it.
+export function Board({ sync, onOpen }: { sync: Sync; onOpen: (id: string) => void }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const tasks = Object.values(sync.tasks);
 
@@ -47,7 +47,7 @@ export function Board({ sync }: { sync: Sync }) {
               status={status}
               tasks={tasks.filter((t) => t.status === status)}
               sync={sync}
-              onOpen={setOpenTask}
+              onOpen={onOpen}
             />
           ))}
         </div>
@@ -60,9 +60,6 @@ export function Board({ sync }: { sync: Sync }) {
           ) : null}
         </DragOverlay>
       </DndContext>
-      {openTask && sync.tasks[openTask] && (
-        <TaskDetail task={sync.tasks[openTask]} sync={sync} onClose={() => setOpenTask(null)} />
-      )}
     </>
   );
 }
