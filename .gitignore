@@ -6,6 +6,11 @@
 node_modules/
 /web/dist/
 
+# Test artifacts
+/web/test-results/
+/web/playwright-report/
+/web/coverage/
+
 # Env / editor
 .env
 .DS_Store

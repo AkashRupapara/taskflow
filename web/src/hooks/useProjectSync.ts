@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { api } from "../api/client";
 import { wsURL } from "../api/ws";
+import { applyTaskEvent } from "../lib/applyEvent";
 import type { Comment, Event, NewTaskInput, Project, Status, Task } from "../types";
 
 // Fields editable on an existing task (all optional / partial update).
@@ -84,14 +85,8 @@ export function useProjectSync(projectId: string | null): Sync {
     switch (ev.type) {
       case "task.created":
       case "task.updated":
-        setTasks((t) => ({ ...t, [ev.payload.id]: ev.payload as Task }));
-        break;
       case "task.deleted":
-        setTasks((t) => {
-          const next = { ...t };
-          delete next[ev.payload.id];
-          return next;
-        });
+        setTasks((t) => applyTaskEvent(t, ev));
         break;
       case "project.updated":
         setProject(ev.payload as Project);
