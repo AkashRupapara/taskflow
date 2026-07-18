@@ -1,28 +1,22 @@
 package store
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
 func TestCursorRoundTrip(t *testing.T) {
-	ts := time.Date(2026, 7, 17, 10, 30, 0, 123456789, time.UTC)
-	id := "3788b96c-3027-48e1-af29-5730c7ccc556"
-
-	cursor := encodeCursor(ts, id)
-	if cursor == "" {
-		t.Fatal("encodeCursor returned empty string")
-	}
-
-	gotTS, gotID, err := decodeCursor(cursor)
-	if err != nil {
-		t.Fatalf("decodeCursor: %v", err)
-	}
-	if !gotTS.Equal(ts) {
-		t.Errorf("timestamp mismatch: got %v want %v", gotTS, ts)
-	}
-	if gotID != id {
-		t.Errorf("id mismatch: got %q want %q", gotID, id)
+	// Fractional positions must survive the round trip exactly, otherwise paging
+	// could skip or repeat a row sitting between two closely-ranked neighbours.
+	for _, pos := range []float64{1, 2.5, 1.0000000000000002, 1234567.75} {
+		id := "3788b96c-3027-48e1-af29-5730c7ccc556"
+		gotPos, gotID, err := decodeCursor(encodeCursor(pos, id))
+		if err != nil {
+			t.Fatalf("decodeCursor(%v): %v", pos, err)
+		}
+		if gotPos != pos {
+			t.Errorf("position mismatch: got %v want %v", gotPos, pos)
+		}
+		if gotID != id {
+			t.Errorf("id mismatch: got %q want %q", gotID, id)
+		}
 	}
 }
 

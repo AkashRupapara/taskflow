@@ -12,13 +12,15 @@ API="${API:-http://localhost:8080/api}"
 pid() { python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])'; }
 
 echo "Creating project 'Website Redesign' ..."
-PID=$(curl -s -X POST "$API/projects" \
+PID=$(curl -s -X POST "$API/projects" -H "X-Actor: Akash" \
   -d '{"name":"Website Redesign","description":"Q3 marketing site refresh"}' | pid)
 
-mk() { curl -s -X POST "$API/projects/$PID/tasks" -d "$1" | pid; }
+# X-Actor attributes each change in the activity log (see README: it is a
+# display name, not an authenticated identity).
+mk() { curl -s -X POST "$API/projects/$PID/tasks" -H "X-Actor: ${2:-Akash}" -d "$1" | pid; }
 
 A=$(mk '{"title":"Design mockups","status":"done","configuration":{"priority":"high","tags":["design"]}}')
-mk '{"title":"Write homepage copy","status":"in_progress","configuration":{"priority":"medium","tags":["content"]}}' >/dev/null
+mk '{"title":"Write homepage copy","status":"in_progress","configuration":{"priority":"medium","tags":["content"]}}' "Dhruvi" >/dev/null
 B=$(mk "{\"title\":\"Build homepage\",\"status\":\"in_progress\",\"configuration\":{\"priority\":\"high\",\"tags\":[\"frontend\"]},\"dependencies\":[\"$A\"]}")
 mk "{\"title\":\"Deploy to production\",\"status\":\"todo\",\"configuration\":{\"priority\":\"high\"},\"dependencies\":[\"$B\"]}" >/dev/null
 

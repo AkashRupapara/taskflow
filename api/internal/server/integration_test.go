@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -138,6 +139,114 @@ func TestDependencyEnforcement(t *testing.T) {
 	}
 	if code, _ := c.do("PATCH", "/api/tasks/"+b, map[string]any{"status": "done"}); code != http.StatusOK {
 		t.Errorf("close B after A done: got %d, want 200", code)
+	}
+}
+
+func TestOptimisticConcurrency(t *testing.T) {
+	c := newTestClient(t)
+	pid := c.newProject("Concurrency Test")
+	id := c.newTask(pid, map[string]any{"title": "Shared"})
+
+	// Client A writes with the rev it read (0) and wins.
+	code, updated := c.do("PATCH", "/api/tasks/"+id, map[string]any{
+		"title": "Edited by A", "expectedRev": 0,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("first write: got %d, want 200", code)
+	}
+	if updated["rev"].(float64) != 1 {
+		t.Errorf("expected rev to bump to 1, got %v", updated["rev"])
+	}
+
+	// Client B still holds rev 0 - its write must be rejected, not clobber A.
+	if code, _ := c.do("PATCH", "/api/tasks/"+id, map[string]any{
+		"title": "Edited by B", "expectedRev": 0,
+	}); code != http.StatusConflict {
+		t.Errorf("stale write: got %d, want 409", code)
+	}
+
+	// After refreshing to rev 1 it succeeds.
+	if code, _ := c.do("PATCH", "/api/tasks/"+id, map[string]any{
+		"title": "Edited by B", "expectedRev": 1,
+	}); code != http.StatusOK {
+		t.Errorf("retry after refresh: got %d, want 200", code)
+	}
+
+	// Omitting expectedRev opts out of the check (backwards compatible).
+	if code, _ := c.do("PATCH", "/api/tasks/"+id, map[string]any{"title": "No rev"}); code != http.StatusOK {
+		t.Errorf("write without expectedRev: got %d, want 200", code)
+	}
+}
+
+func TestManualOrdering(t *testing.T) {
+	c := newTestClient(t)
+	pid := c.newProject("Ordering Test")
+
+	// Created tasks land at the end, so the initial order is creation order.
+	a := c.newTask(pid, map[string]any{"title": "A"})
+	c.newTask(pid, map[string]any{"title": "B"})
+	last := c.newTask(pid, map[string]any{"title": "C"})
+
+	titles := func() []string {
+		_, page := c.do("GET", "/api/projects/"+pid+"/tasks?limit=50", nil)
+		var out []string
+		for _, it := range page["items"].([]any) {
+			out = append(out, it.(map[string]any)["title"].(string))
+		}
+		return out
+	}
+	if got := titles(); !reflect.DeepEqual(got, []string{"A", "B", "C"}) {
+		t.Fatalf("initial order = %v, want [A B C]", got)
+	}
+
+	// Move C between A and B by giving it the midpoint position (one row changes).
+	_, taskA := c.do("PATCH", "/api/tasks/"+a, map[string]any{}) // read A's position
+	posA := taskA["position"].(float64)
+	if code, _ := c.do("PATCH", "/api/tasks/"+last, map[string]any{"position": posA + 0.5}); code != http.StatusOK {
+		t.Fatalf("reorder: got %d", code)
+	}
+	if got := titles(); !reflect.DeepEqual(got, []string{"A", "C", "B"}) {
+		t.Errorf("after moving C up: %v, want [A C B]", got)
+	}
+
+	// Keyset pagination must follow the same (position, id) ordering.
+	_, p1 := c.do("GET", "/api/projects/"+pid+"/tasks?limit=2", nil)
+	cursor := p1["nextCursor"].(string)
+	if cursor == "" {
+		t.Fatal("expected a next cursor")
+	}
+	_, p2 := c.do("GET", "/api/projects/"+pid+"/tasks?limit=2&cursor="+cursor, nil)
+	if items := p2["items"].([]any); len(items) != 1 ||
+		items[0].(map[string]any)["title"] != "B" {
+		t.Errorf("second page should contain only B, got %v", items)
+	}
+}
+
+func TestActorAttribution(t *testing.T) {
+	c := newTestClient(t)
+	pid := c.newProject("Actor Test")
+
+	req, _ := http.NewRequest("POST", c.base+"/api/projects/"+pid+"/tasks",
+		bytes.NewReader([]byte(`{"title":"Attributed"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Actor", "Akash")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("create with actor: %v", err)
+	}
+	resp.Body.Close()
+
+	eventsReq, _ := http.NewRequest("GET", c.base+"/api/projects/"+pid+"/events?since=0", nil)
+	eventsResp, err := http.DefaultClient.Do(eventsReq)
+	if err != nil {
+		t.Fatalf("events request: %v", err)
+	}
+	defer eventsResp.Body.Close()
+	var events []map[string]any
+	_ = json.NewDecoder(eventsResp.Body).Decode(&events)
+
+	if len(events) == 0 || events[0]["actor"] != "Akash" {
+		t.Errorf("expected event actor 'Akash', got %v", events)
 	}
 }
 

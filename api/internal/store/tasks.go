@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -24,12 +24,17 @@ type TaskInput struct {
 }
 
 // TaskPatch updates a task. Nil fields are left unchanged (partial update).
+// ExpectedRev opts into optimistic concurrency: if set and it no longer matches
+// the task's current rev, someone else changed it first and we reject the write
+// rather than silently overwriting them.
 type TaskPatch struct {
 	Title         *string                   `json:"title"`
 	Status        *string                   `json:"status"`
 	AssignedTo    *[]string                 `json:"assignedTo"`
 	Configuration *domain.TaskConfiguration `json:"configuration"`
 	Dependencies  *[]string                 `json:"dependencies"`
+	ExpectedRev   *int                      `json:"expectedRev"`
+	Position      *float64                  `json:"position"` // fractional rank (manual reorder)
 }
 
 // Page is a cursor-paginated result. NextCursor is empty when there are no more.
@@ -38,7 +43,8 @@ type Page struct {
 	NextCursor string        `json:"nextCursor"`
 }
 
-// ListTasks returns a keyset-paginated page of tasks ordered by (created_at, id).
+// ListTasks returns a keyset-paginated page of tasks ordered by (position, id),
+// i.e. the project's manual ordering used by the backlog view.
 // Keyset (not OFFSET) keeps paging O(1) no matter how deep the client scrolls,
 // which is what makes 10k+ task boards viable.
 func (s *Store) ListTasks(ctx context.Context, projectID string, limit int, cursor string) (Page, error) {
@@ -49,19 +55,19 @@ func (s *Store) ListTasks(ctx context.Context, projectID string, limit int, curs
 	args := []any{projectID}
 	where := "project_id = $1"
 	if cursor != "" {
-		ts, id, err := decodeCursor(cursor)
+		pos, id, err := decodeCursor(cursor)
 		if err != nil {
 			return Page{}, err
 		}
 		// Rows strictly after the cursor position in the same ordering.
-		where += " AND (created_at, id) > ($2, $3)"
-		args = append(args, ts, id)
+		where += " AND (position, id) > ($2, $3)"
+		args = append(args, pos, id)
 	}
 	args = append(args, limit+1) // fetch one extra to know if there's a next page
 
 	query := fmt.Sprintf(
-		`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number
-		 FROM tasks WHERE %s ORDER BY created_at, id LIMIT $%d`, where, len(args))
+		`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number, rev, position
+		 FROM tasks WHERE %s ORDER BY position, id LIMIT $%d`, where, len(args))
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -85,12 +91,12 @@ func (s *Store) ListTasks(ctx context.Context, projectID string, limit int, curs
 	if len(tasks) > limit { // the extra row means more pages exist
 		last := tasks[limit-1]
 		page.Items = tasks[:limit]
-		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
+		page.NextCursor = encodeCursor(last.Position, last.ID)
 	}
 	return page, nil
 }
 
-func (s *Store) CreateTask(ctx context.Context, projectID string, in TaskInput) (domain.Task, error) {
+func (s *Store) CreateTask(ctx context.Context, projectID string, in TaskInput, actor string) (domain.Task, error) {
 	if in.Status == "" {
 		in.Status = "todo"
 	}
@@ -118,16 +124,24 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, in TaskInput) 
 			return err
 		}
 
+		// New tasks land at the end of the project's manual ordering.
+		var nextPos float64
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = $1`,
+			projectID).Scan(&nextPos); err != nil {
+			return err
+		}
+
 		cfg, _ := json.Marshal(in.Configuration)
 		row := tx.QueryRow(ctx,
-			`INSERT INTO tasks (project_id, number, title, status, assigned_to, configuration, dependencies)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
-			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number`,
-			projectID, number, in.Title, in.Status, in.AssignedTo, cfg, in.Dependencies)
+			`INSERT INTO tasks (project_id, number, title, status, assigned_to, configuration, dependencies, position)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number, rev, position`,
+			projectID, number, in.Title, in.Status, in.AssignedTo, cfg, in.Dependencies, nextPos)
 		if t, err = scanTask(row); err != nil {
 			return err
 		}
-		ev, err = appendEvent(ctx, tx, projectID, domain.EventTaskCreated, t, "")
+		ev, err = s.appendEvent(ctx, tx, projectID, domain.EventTaskCreated, t, actor)
 		return err
 	})
 	if err != nil {
@@ -139,13 +153,13 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, in TaskInput) 
 
 // UpdateTask applies a partial patch, validating status + dependencies, and
 // records a task.updated event carrying the new task state (the delta).
-func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (domain.Task, error) {
+func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch, actor string) (domain.Task, error) {
 	var t domain.Task
 	var ev domain.Event
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// Load current state (locked) so we can merge the patch onto it.
 		row := tx.QueryRow(ctx,
-			`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number
+			`SELECT id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number, rev, position
 			 FROM tasks WHERE id = $1 FOR UPDATE`, id)
 		cur, err := scanTask(row)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -153,6 +167,11 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 		}
 		if err != nil {
 			return err
+		}
+
+		// Optimistic concurrency: reject if the task moved on since the client read it.
+		if patch.ExpectedRev != nil && *patch.ExpectedRev != cur.Rev {
+			return ErrStaleWrite
 		}
 
 		if patch.Title != nil {
@@ -170,6 +189,9 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 		if patch.Configuration != nil {
 			cur.Configuration = *patch.Configuration
 		}
+		if patch.Position != nil {
+			cur.Position = *patch.Position
+		}
 		if patch.Dependencies != nil {
 			cur.Dependencies = *patch.Dependencies
 			cyclic, err := wouldCreateCycle(ctx, tx, id, cur.Dependencies)
@@ -186,14 +208,15 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 
 		cfg, _ := json.Marshal(cur.Configuration)
 		row = tx.QueryRow(ctx,
-			`UPDATE tasks SET title=$2, status=$3, assigned_to=$4, configuration=$5, dependencies=$6
+			`UPDATE tasks SET title=$2, status=$3, assigned_to=$4, configuration=$5, dependencies=$6,
+			        position=$7, rev = rev + 1
 			 WHERE id=$1
-			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number`,
-			id, cur.Title, cur.Status, orEmpty(cur.AssignedTo), cfg, orEmpty(cur.Dependencies))
+			 RETURNING id, project_id, title, status, assigned_to, configuration, dependencies, created_at, number, rev, position`,
+			id, cur.Title, cur.Status, orEmpty(cur.AssignedTo), cfg, orEmpty(cur.Dependencies), cur.Position)
 		if t, err = scanTask(row); err != nil {
 			return err
 		}
-		ev, err = appendEvent(ctx, tx, t.ProjectID, domain.EventTaskUpdated, t, "")
+		ev, err = s.appendEvent(ctx, tx, t.ProjectID, domain.EventTaskUpdated, t, actor)
 		return err
 	})
 	if err != nil {
@@ -203,7 +226,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch TaskPatch) (dom
 	return t, nil
 }
 
-func (s *Store) DeleteTask(ctx context.Context, id string) error {
+func (s *Store) DeleteTask(ctx context.Context, id string, actor string) error {
 	var ev domain.Event
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var projectID string
@@ -214,7 +237,7 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
-		ev, err = appendEvent(ctx, tx, projectID, domain.EventTaskDeleted, map[string]string{"id": id}, "")
+		ev, err = s.appendEvent(ctx, tx, projectID, domain.EventTaskDeleted, map[string]string{"id": id}, actor)
 		return err
 	})
 	if err != nil {
@@ -271,7 +294,7 @@ func checkDependencies(ctx context.Context, tx pgx.Tx, status string, deps []str
 func scanTask(row pgx.Row) (domain.Task, error) {
 	var t domain.Task
 	var cfg []byte
-	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Status, &t.AssignedTo, &cfg, &t.Dependencies, &t.CreatedAt, &t.Number)
+	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Status, &t.AssignedTo, &cfg, &t.Dependencies, &t.CreatedAt, &t.Number, &t.Rev, &t.Position)
 	if err != nil {
 		return t, err
 	}
@@ -281,26 +304,27 @@ func scanTask(row pgx.Row) (domain.Task, error) {
 	return t, nil
 }
 
-// Cursor helpers: encode the last row's (created_at, id) as an opaque token.
-func encodeCursor(ts time.Time, id string) string {
-	raw := ts.UTC().Format(time.RFC3339Nano) + "|" + id
+// Cursor helpers: encode the last row's (position, id) as an opaque token, which
+// matches the list's ORDER BY so paging stays a keyset scan.
+func encodeCursor(position float64, id string) string {
+	raw := strconv.FormatFloat(position, 'g', 17, 64) + "|" + id
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-func decodeCursor(cursor string) (time.Time, string, error) {
+func decodeCursor(cursor string) (float64, string, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return time.Time{}, "", fmt.Errorf("bad cursor")
+		return 0, "", fmt.Errorf("bad cursor")
 	}
 	parts := strings.SplitN(string(raw), "|", 2)
 	if len(parts) != 2 {
-		return time.Time{}, "", fmt.Errorf("bad cursor")
+		return 0, "", fmt.Errorf("bad cursor")
 	}
-	ts, err := time.Parse(time.RFC3339Nano, parts[0])
+	pos, err := strconv.ParseFloat(parts[0], 64)
 	if err != nil {
-		return time.Time{}, "", fmt.Errorf("bad cursor")
+		return 0, "", fmt.Errorf("bad cursor")
 	}
-	return ts, parts[1], nil
+	return pos, parts[1], nil
 }
 
 // orEmpty normalizes a nil slice to an empty one so Postgres stores '{}' not NULL.

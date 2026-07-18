@@ -57,7 +57,7 @@ paths:
   /api/projects/{id}/tasks:
     parameters: [{ $ref: "#/components/parameters/Id" }]
     get:
-      summary: List tasks (keyset / cursor pagination)
+      summary: List tasks in manual order (keyset / cursor pagination)
       parameters:
         - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
         - { name: cursor, in: query, schema: { type: string }, description: "Opaque nextCursor from a previous page" }
@@ -67,6 +67,7 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/TaskPage" } } }
     post:
       summary: Create a task
+      parameters: [{ $ref: "#/components/parameters/Actor" }]
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "#/components/schemas/TaskInput" } } }
@@ -79,6 +80,7 @@ paths:
     parameters: [{ $ref: "#/components/parameters/Id" }]
     patch:
       summary: Update a task (partial)
+      parameters: [{ $ref: "#/components/parameters/Actor" }]
       description: >
         Any field may be sent. Setting status to "done" while a dependency is not
         done returns 409. Setting dependencies that would form a cycle returns 409.
@@ -104,6 +106,7 @@ paths:
         "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Comment" } } } } }
     post:
       summary: Add a comment
+      parameters: [{ $ref: "#/components/parameters/Actor" }]
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "#/components/schemas/CommentInput" } } }
@@ -129,6 +132,15 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    Actor:
+      name: X-Actor
+      in: header
+      required: false
+      description: >
+        Display name recorded as the `actor` on the resulting event, powering the
+        activity log. NOTE: client-supplied, not an authenticated identity - there
+        is no login in this build. Defaults to "someone".
+      schema: { type: string, maxLength: 60 }
   responses:
     BadRequest:
       description: Invalid input
@@ -137,7 +149,9 @@ components:
       description: Resource not found
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     Conflict:
-      description: Dependency rule violated (unmet blocker or cycle)
+      description: >
+        Rejected: an unmet blocker (cannot close while a dependency is open), a
+        dependency cycle, or a stale expectedRev (someone else changed the task).
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
   schemas:
     Health:
@@ -181,6 +195,8 @@ components:
         assignedTo: { type: array, items: { type: string } }
         configuration: { $ref: "#/components/schemas/TaskConfiguration" }
         dependencies: { type: array, items: { type: string }, description: "Task ids that block this one" }
+        rev: { type: integer, description: "Revision, bumped on every update; send back as expectedRev" }
+        position: { type: number, format: double, description: "Fractional rank for manual ordering (backlog)" }
         createdAt: { type: string, format: date-time }
     TaskInput:
       type: object
@@ -200,6 +216,13 @@ components:
         assignedTo: { type: array, items: { type: string } }
         configuration: { $ref: "#/components/schemas/TaskConfiguration" }
         dependencies: { type: array, items: { type: string } }
+        position: { type: number, format: double, description: "New fractional rank (reorder). Typically the midpoint of the new neighbours." }
+        expectedRev:
+          type: integer
+          description: >
+            Optimistic concurrency. If provided and it no longer matches the
+            task's current rev, the write is rejected with 409 instead of
+            overwriting a concurrent edit. Omit to opt out.
     TaskPage:
       type: object
       properties:

@@ -19,12 +19,15 @@ echo "  project id = $PID"
 
 echo "Inserting ${COUNT} tasks ..."
 # Round-robin the three statuses so all columns are populated.
-$PG -c "INSERT INTO tasks (project_id, title, status, configuration)
+$PG -c "INSERT INTO tasks (project_id, number, position, title, status, configuration)
      SELECT '$PID',
+            g,
+            g,
             'Task ' || g,
             (ARRAY['todo','in_progress','done'])[1 + (g % 3)],
             jsonb_build_object('priority', (ARRAY['low','','high'])[1 + (g % 3)], 'tags', '[]'::jsonb)
      FROM generate_series(1, $COUNT) g;" >/dev/null
+$PG -c "UPDATE projects SET task_seq = $COUNT WHERE id = '$PID';" >/dev/null
 $PG -c "ANALYZE tasks;" >/dev/null # refresh planner stats after the bulk load
 echo "  done."
 

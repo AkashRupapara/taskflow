@@ -35,6 +35,8 @@ type Task struct {
 	Configuration TaskConfiguration `json:"configuration"`
 	Dependencies  []string          `json:"dependencies"`
 	CreatedAt     time.Time         `json:"createdAt"`
+	Rev           int               `json:"rev"`      // bumped on every update; used for optimistic concurrency
+	Position      float64           `json:"position"` // fractional rank for manual ordering (backlog)
 }
 
 type Comment struct {

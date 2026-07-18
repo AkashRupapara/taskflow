@@ -45,6 +45,11 @@ func main() {
 	hub := ws.NewHub(st, log.Printf)
 	st.SetPublisher(hub)
 
+	// Fan-out across API instances: each process LISTENs for events written by
+	// other instances and delivers them to its own subscribers. This is what
+	// makes running more than one API replica possible.
+	go st.Listen(ctx, log.Printf)
+
 	// REST routes live in the server package; health + ws stay here.
 	mux := server.New(st).Routes()
 	mux.HandleFunc("GET /ws", hub.ServeHTTP)

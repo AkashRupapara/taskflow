@@ -51,7 +51,7 @@ func (s *Store) AddComment(ctx context.Context, taskID, content, author string) 
 		if err := row.Scan(&c.ID, &c.TaskID, &c.Content, &c.Author, &c.CreatedAt); err != nil {
 			return err
 		}
-		ev, err = appendEvent(ctx, tx, projectID, domain.EventCommentAdded, c, author)
+		ev, err = s.appendEvent(ctx, tx, projectID, domain.EventCommentAdded, c, author)
 		return err
 	})
 	if err != nil {

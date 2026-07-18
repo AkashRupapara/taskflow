@@ -81,7 +81,7 @@ func (s *Store) CreateProject(ctx context.Context, in ProjectInput) (domain.Proj
 }
 
 // UpdateProject writes the new fields and records a project.updated event.
-func (s *Store) UpdateProject(ctx context.Context, id string, in ProjectInput) (domain.Project, error) {
+func (s *Store) UpdateProject(ctx context.Context, id string, in ProjectInput, actor string) (domain.Project, error) {
 	if len(in.Metadata) == 0 {
 		in.Metadata = json.RawMessage(`{}`)
 	}
@@ -99,7 +99,7 @@ func (s *Store) UpdateProject(ctx context.Context, id string, in ProjectInput) (
 			}
 			return err
 		}
-		ev, err = appendEvent(ctx, tx, id, domain.EventProjectUpdated, p, "")
+		ev, err = s.appendEvent(ctx, tx, id, domain.EventProjectUpdated, p, actor)
 		return err
 	})
 	if err != nil {
