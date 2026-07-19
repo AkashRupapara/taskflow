@@ -5,6 +5,16 @@ same board at once and see each other's changes within milliseconds, without any
 managed real-time database. Go backend, React frontend, Postgres, and an
 append-only event log that drives efficient delta sync.
 
+**One decision drives the rest:** every change is *appended to an event log*
+rather than mutating state in place. Real-time sync, reconnect catch-up,
+undo/redo, the activity log, and time-travel are all consequences of that single
+choice - not separate systems bolted on.
+
+> **Start here:** [Architecture](#architecture) for the core idea ·
+> [How sync works](#how-sync-works) for the mechanism ·
+> [Challenges](#challenges) and [Tradeoffs](#tradeoffs) for the reasoning.
+> To run it: `docker compose up`.
+
 ## What it does
 
 - **Projects and tasks** - create, edit, delete; Jira-style ids (`WR-1`)
