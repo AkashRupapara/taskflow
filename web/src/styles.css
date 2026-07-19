@@ -287,7 +287,13 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: #8a90a0;
-  margin: 12px 0 4px;
+  margin: 16px 0 5px;
+}
+/* Section headings in the panel (Comments, Activity) share the same vertical
+   rhythm as .field-label, instead of the browser's much larger h4 default. */
+.detail-panel h4 {
+  font-size: 14px;
+  margin: 22px 0 8px;
 }
 .field-input {
   width: 100%;
@@ -438,14 +444,21 @@ select.field-input {
   margin-top: 12px;
 }
 .deps {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .dep {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 7px 0;
+}
+/* Divider only BETWEEN rows. A border-bottom on every row would draw a line
+   under the last one, which reads as a separator above the add button. */
+.dep + .dep {
+  border-top: 1px solid #f0f0f0;
+}
+.deps .ghost-btn.small {
+  margin-top: 8px;
 }
 .dep-title {
   flex: 1;
@@ -744,4 +757,53 @@ select.field-input {
 .backlog-status.done {
   background: #d7f5e6;
   color: #16794b;
+}
+
+/* Panel sections (Comments, Activity) - separated from the form fields above */
+.panel-section {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #eceef1;
+}
+.panel-section h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+/* Collapsed Activity: native <details>, so it is keyboard accessible for free. */
+details.panel-section > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  user-select: none;
+}
+details.panel-section > summary::-webkit-details-marker {
+  display: none;
+}
+details.panel-section > summary::before {
+  content: "›";
+  display: inline-block;
+  color: #8a90a0;
+  font-size: 15px;
+  transition: transform 0.15s;
+}
+details.panel-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+details.panel-section > summary:hover {
+  color: #3457d5;
+}
+details.panel-section > summary .count {
+  font-weight: 500;
+  font-size: 12px;
+  color: #5a6270;
+  background: #eef0f4;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+details.panel-section .activity {
+  margin-top: 8px;
 }

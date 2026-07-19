@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { buildActivity } from "../lib/activity";
 import { ActivityFeed } from "./ActivityFeed";
 import { Timeline } from "./Timeline";
 import type { Event, Project } from "../types";
@@ -39,7 +40,7 @@ export function History({ project, onClose }: { project: Project; onClose: () =>
       {!events ? (
         <p className="empty">Loading history…</p>
       ) : tab === "activity" ? (
-        <ActivityFeed events={events} project={project} />
+        <ActivityFeed items={buildActivity(events, project.key)} showTaskRef />
       ) : (
         <Timeline project={project} events={events} />
       )}

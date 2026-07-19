@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { PRIORITIES, PRIORITY_LABEL, STATUS_LABEL } from "../constants";
 import type { Sync } from "../hooks/useProjectSync";
 import { STATUSES, type Event, type Status, type Task } from "../types";
+import { buildActivity } from "../lib/activity";
 import { ActivityFeed } from "./ActivityFeed";
 
 interface Props {
@@ -34,6 +35,11 @@ export function TaskDetail({ task, sync, onClose }: Props) {
       sync.loadComments(task.id);
     }
   }, [task.id, sync]);
+
+  const activity = useMemo(() => {
+    if (!events || !sync.project) return [];
+    return buildActivity(events, sync.project.key).filter((a) => a.taskId === task.id);
+  }, [events, sync.project, task.id]);
 
   const send = () => {
     if (!text.trim()) return;
@@ -164,31 +170,35 @@ export function TaskDetail({ task, sync, onClose }: Props) {
         )}
       </div>
 
-      <h4>Comments</h4>
-      <div className="comments">
-        {comments.length === 0 && <p className="muted">No comments yet.</p>}
-        {comments.map((c) => (
-          <div key={c.id} className="comment">
-            <b>{c.author}</b> {c.content}
-          </div>
-        ))}
-      </div>
-      <div className="add">
-        <input
-          value={text}
-          placeholder="Add a comment…"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-        />
-        <button onClick={send}>Send</button>
-      </div>
+      <section className="panel-section">
+        <h4>Comments</h4>
+        <div className="comments">
+          {comments.length === 0 && <p className="muted">No comments yet.</p>}
+          {comments.map((c) => (
+            <div key={c.id} className="comment">
+              <b>{c.author}</b> {c.content}
+            </div>
+          ))}
+        </div>
+        <div className="add">
+          <input
+            value={text}
+            placeholder="Add a comment…"
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && send()}
+          />
+          <button onClick={send}>Send</button>
+        </div>
+      </section>
 
-      <h4>Activity</h4>
-      {events && sync.project ? (
-        <ActivityFeed events={events} project={sync.project} taskId={task.id} />
-      ) : (
-        <p className="muted">Loading…</p>
-      )}
+      {/* Collapsed by default: the audit trail grows with every edit, and it is
+          reference material rather than something you act on. */}
+      <details className="panel-section">
+        <summary>
+          Activity <span className="count">{activity.length}</span>
+        </summary>
+        {events ? <ActivityFeed items={activity} /> : <p className="muted">Loading…</p>}
+      </details>
     </aside>
   );
 }
